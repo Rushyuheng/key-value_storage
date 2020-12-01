@@ -1,23 +1,26 @@
 #include <iostream>
+#include <iomanip>
 #include <map>
 #include <deque>
 #include <string>
 #include <fstream>
 #include <sstream>
 #include <cstdio>
+#include <cstdlib>
 using namespace std;
 
 #define CHUNKSIZE  2000000// 2 * 10 ^ 6 lines in a chunk which is 272MB
 #define QUEUESIZE  8 // at max load 8 map at a time 
 
-void writemap();
-map<long,string> loadmap(ifstream &targetfile, map<long,string> &targetmap);
+void writemap(map <long,string> &targetmap);
+void saveallmap();
+void loadmap(ifstream &targetfile, map<long,string> &targetmap);//load map by reference
 void maintainqueue();
 void put(long key, string value);
 void getmap(long key);
 
 
-deque <map<long,string>> mapqueue;// global map var
+deque <map<long,string>> mapqueue;// global map queue var
 
 int main(int argc, char *argv[]){
 	ifstream commandfile;
@@ -27,21 +30,26 @@ int main(int argc, char *argv[]){
         return 0;
     }
 	string line;
-	int line_num = 1; 
+	int line_num = 1;
+	stringstream ss(line);
+	string comNarg[3];
+	string temp;
+	int i = 0;
 	while(getline(commandfile , line)){ //read command file until reach eof
-		stringstream ss(line);
-		string comNarg[3];
-		string temp;
-		int i = 0;
+		ss << line;
+		i = 0;
 		while(getline(ss,temp,' ')){//separate one line command 
 			comNarg[i] = temp;
 			++i;
 		}
+		ss.str(std::string());//clear stringstream
+		ss.clear();
 		// start switch
 		if(comNarg[0] == "PUT"){
 			long key = stol(comNarg[1]);
 			string value = comNarg[2];
-			put(key,value);
+			cout << "put key:" << key << " value: " << value << endl;
+			//put(key,value);
 		}
 		else if (comNarg[0] == "GET"){
 			long key =  stol(comNarg[1]);
@@ -57,6 +65,7 @@ int main(int argc, char *argv[]){
 		}
 		++line_num;
 	}
+	//saveallmap();
 	commandfile.close();
 	return 0;
 }
@@ -76,7 +85,7 @@ void getmap(long key){
 	long index = key / CHUNKSIZE;
 	map <long,string> targetmap;
 	for(int i = 0;i < mapqueue.size();++i){
-		if(stol(mapqueue.at(i).at(-1)) == index){//if find targetmap in memory
+		if(stol(mapqueue.at(i).at(-1)) == index && i != mapqueue.size() - 1){//if find targetmap in memory and it is not the back of the queue
 			mapqueue.push_back(mapqueue.at(i));// repush the map to keep it recently used
 			mapqueue.erase(mapqueue.begin() + i);//clear duplicate map
 			return ;
@@ -88,10 +97,11 @@ void getmap(long key){
 	ifstream f(targetfilename);
 	if(f.good()){//exsit file
 		if(mapqueue.size() >= QUEUESIZE){//queue full
+			writemap(mapqueue.front());//write to disk 
 			mapqueue.pop_front();//pop least used map
 		}
 		//queue exsited vacancy
-		targetmap = loadmap(f, targetmap);
+		loadmap(f, targetmap);
 		mapqueue.push_back(targetmap);
 		f.close();
 		return ;
@@ -99,6 +109,7 @@ void getmap(long key){
 	//if not in the disk then creat a new map
 	else{
 		if(mapqueue.size() >= QUEUESIZE){//queue full
+			writemap(mapqueue.front());//write to disk 
 			mapqueue.pop_front();//pop least used map
 		}	
 		//queue exsited vacancy
@@ -109,6 +120,101 @@ void getmap(long key){
 }
 
 
-map<long,string> loadmap(ifstream &targetfile, map<long,string> &targetmap){
-	return targetmap;
+void loadmap(ifstream &targetfile, map<long,string> &targetmap){
+	string line;
+	stringstream ss(line);
+	string keyNval[2];
+	string temp;
+	int i = 0;
+
+	while(getline(targetfile , line)){ //read tmp file until reach eof
+		ss << line;
+		i = 0;
+		while(getline(ss,temp,':')){//separate one line key and vaule 
+			keyNval[i] = temp;
+			++i;
+		}
+		ss.str(std::string());//clear stringstream
+		ss.clear();
+		long key = stol(keyNval[0]);
+		string value = keyNval[1];
+		targetmap[key] = value;
+	}
+	return;
+}
+
+
+void writemap(map <long,string> &targetmap){
+	string targetfilename = targetmap[-1] + ".tmp";
+	fstream outfile;
+	outfile.open (targetfilename ,fstream::in);//open file in fstream::in mode to check if file exsit
+
+	if(outfile.good()){//file aready exsit
+		outfile.close();//close it and reopen in different mode
+		outfile.open (targetfilename ,fstream::in | fstream::out);
+		string line;
+  		stringstream ss(line);
+		string keyNval[2];
+		string temp;
+		int i = 0;
+
+		map<long,string>::iterator it = targetmap.begin();
+			
+		getline(outfile,line); //get map header which is map[-1] = index
+		while(getline(ss,temp,':')){//separate line
+			keyNval[i] = temp;
+			++i;
+		}
+		ss.str(std::string());//clear stringstream
+		ss.clear();
+
+		if(targetmap[-1].compare(keyNval[1]) != 0){//check header value match 
+			cerr << "write on wrong file causing program to abort." <<endl;
+			exit(EXIT_FAILURE);
+		}
+		++it;//first line is index
+
+  		while(getline(outfile,line)){//compare all line in file to check need update or not
+			ss << line;//reuse variable
+			i = 0;
+			while(getline(ss,temp,':')){//separate line command
+				keyNval[i] = temp;
+				++i;
+			}
+			ss.str(std::string());//clear stringstream
+			ss.clear();
+			long readkey = stol(keyNval[0]);
+			string readvalue = keyNval[1];
+			if(readkey != it->first){//if key are different then break,and update whole file from this line on by the for loop
+				long pos = outfile.tellg(); // get curret file pointer position
+				long stringl = line.length(); // get string length
+				outfile.seekp(pos - stringl);// walk backward to the start of the line
+				outfile << setfill('0') << setw(19) << it->first << ":" << it->second <<"\n";
+				++it;//next element
+				break;//let for loop update file 
+
+			}
+			else if(readvalue.compare(it->second) != 0){//if value are different,only update this line of file
+				long pos = outfile.tellg(); // get curret file pointer position
+				long stringl = line.length(); // get string length
+				outfile.seekp(pos - stringl);// walk backward to the start of the line
+				outfile << setfill('0') << setw(19) << it->first << ":" << it->second <<"\n";
+				++it;//next element
+			}
+  		}
+		
+		for(;it != targetmap.end();++it){//number of line in map  > number of line in file or continuously update file
+			outfile << setfill('0') << setw(19) << it->first << ":" << it->second <<"\n";
+		}
+
+  		outfile.close();
+  		return ;
+	}
+	else{ //file not exsit, creat new file 
+		outfile.close();//close it and reopen in different mode
+		outfile.open (targetfilename ,fstream::out);
+		for(map<long,string>::iterator it = targetmap.begin();it != targetmap.end();++it){//iterate through all elements
+			outfile << setfill('0') << setw(19) << it->first << ":" << it->second <<"\n";
+		}
+	}
 }
