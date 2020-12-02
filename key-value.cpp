@@ -7,6 +7,7 @@
 #include <sstream>
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
 using namespace std;
 
 #define CHUNKSIZE  2000000// 2 * 10 ^ 6 lines in a chunk which is 272MB
@@ -17,24 +18,40 @@ void saveallmap();
 void loadmap(ifstream &targetfile, map<long,string> &targetmap);//load map by reference
 void maintainqueue();
 void put(long key, string value);
+string get(long key);
 void getmap(long key);
 
 
 deque <map<long,string>> mapqueue;// global map queue var
 
 int main(int argc, char *argv[]){
+	chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();//timer start  	
 	ifstream commandfile;
+	ofstream outputfile;
 	commandfile.open(argv[1]);
 	if (commandfile.fail()) {
         cerr << "Couldn't open the file: " << argv[1] << endl;
         return 0;
     }
+	
+	//string tokenize variable
 	string line;
 	int line_num = 1;
-	stringstream ss(line);
+	stringstream ss;
 	string comNarg[3];
 	string temp;
 	int i = 0;
+
+	line = argv[1];
+	ss << line;
+	while(getline(ss,temp,'.')){//separate one line command 
+		comNarg[i] = temp;
+		++i;
+	}
+	ss.str(std::string());//clear stringstream
+	ss.clear();
+	outputfile.open(comNarg[0] + ".output");//open outputfile with same input command file name
+
 	while(getline(commandfile , line)){ //read command file until reach eof
 		ss << line;
 		i = 0;
@@ -48,25 +65,34 @@ int main(int argc, char *argv[]){
 		if(comNarg[0] == "PUT"){
 			long key = stol(comNarg[1]);
 			string value = comNarg[2];
-			cout << "put key:" << key << " value: " << value << endl;
-			//put(key,value);
+			//cout << "put key:" << key << " value: " << value << endl;
+			put(key,value);
 		}
 		else if (comNarg[0] == "GET"){
 			long key =  stol(comNarg[1]);
-			cout << "get key:" << key << endl;
+			//cout << "get key:" << key << endl;
+			string getvalue = get(key);
+			outputfile << getvalue <<"\n";
 		}
 		else if (comNarg[0] == "SCAN"){
 			long key1 =  stol(comNarg[1]);
 			long key2 =  stol(comNarg[2]);
-			cout << "scan key: "<< key1 << " key2: " << key2 << endl;
+			//cout << "scan key: "<< key1 << " key2: " << key2 << endl;
+			for(;key1 <= key2;++key1){
+				string getvalue = get(key1);
+				outputfile << getvalue << "\n";
+			}
 		}
 		else{
 			cerr << "unkown command, please check your input file at ine: " << line_num << endl;
 		}
 		++line_num;
 	}
-	//saveallmap();
+	saveallmap();//before the program end, save all map in memory
 	commandfile.close();
+	outputfile.close();
+	chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+	cout << "Elapsed time in milliseconds : "<< chrono::duration_cast<chrono::milliseconds>(end - begin).count()<< " ms" << endl;
 	return 0;
 }
 
@@ -77,18 +103,43 @@ void put(long key, string value){
 		mapqueue.back()[key] = value;//last one should be the target map
 	}
 	else{
-		cerr << "getmap fail" << endl;
+		cerr << "getmap() failed:file header does not match with index" << endl;
+		exit(EXIT_FAILURE);
 	}
+}
+
+string get(long key){
+	long index = key / CHUNKSIZE;
+	getmap(key);
+	if(stol(mapqueue.back()[-1]) == index){
+		map<long,string>::iterator it = mapqueue.back().find(key);
+		if(it != mapqueue.back().end()){//find in the map
+			return it->second;//return string value
+		}
+		else{
+			return "EMPTY";
+		}
+	}
+	else{
+		cerr << "getmap() failed:file header does not match with index" << endl;
+		exit(EXIT_FAILURE);
+	}
+
 }
 
 void getmap(long key){
 	long index = key / CHUNKSIZE;
 	map <long,string> targetmap;
 	for(int i = 0;i < mapqueue.size();++i){
-		if(stol(mapqueue.at(i).at(-1)) == index && i != mapqueue.size() - 1){//if find targetmap in memory and it is not the back of the queue
-			mapqueue.push_back(mapqueue.at(i));// repush the map to keep it recently used
-			mapqueue.erase(mapqueue.begin() + i);//clear duplicate map
-			return ;
+		if(stol(mapqueue.at(i).at(-1)) == index){//if find targetmap in memory
+			if(i == mapqueue.size() - 1){//targetmap is the most recent used map
+				return;//no need to repush to the back
+			}
+			else{
+				mapqueue.push_back(mapqueue.at(i));// repush the map to keep it recently used
+				mapqueue.erase(mapqueue.begin() + i);//clear duplicate map
+				return ;
+			}
 		}
 	}
 	// if no targetmap find in memory
@@ -97,7 +148,8 @@ void getmap(long key){
 	ifstream f(targetfilename);
 	if(f.good()){//exsit file
 		if(mapqueue.size() >= QUEUESIZE){//queue full
-			writemap(mapqueue.front());//write to disk 
+			writemap(mapqueue.front());//write to disk
+			mapqueue.front().clear(); //free memory space
 			mapqueue.pop_front();//pop least used map
 		}
 		//queue exsited vacancy
@@ -109,7 +161,8 @@ void getmap(long key){
 	//if not in the disk then creat a new map
 	else{
 		if(mapqueue.size() >= QUEUESIZE){//queue full
-			writemap(mapqueue.front());//write to disk 
+			writemap(mapqueue.front());//write to disk
+			mapqueue.front().clear();//clear memory space
 			mapqueue.pop_front();//pop least used map
 		}	
 		//queue exsited vacancy
@@ -213,8 +266,21 @@ void writemap(map <long,string> &targetmap){
 	else{ //file not exsit, creat new file 
 		outfile.close();//close it and reopen in different mode
 		outfile.open (targetfilename ,fstream::out);
-		for(map<long,string>::iterator it = targetmap.begin();it != targetmap.end();++it){//iterate through all elements
+		map<long,string>::iterator it = targetmap.begin();
+		outfile << it->first << ":" << it->second <<"\n"; //header no need to pad 0
+		++it;//first line processed
+
+		for(;it != targetmap.end();++it){//iterate through all elements
 			outfile << setfill('0') << setw(19) << it->first << ":" << it->second <<"\n";
 		}
+		outfile.close();
+		return;
 	}
+}
+
+void saveallmap(){
+	for(int i = 0;i < mapqueue.size();++i){
+		writemap(mapqueue.at(i));
+	}
+	return;
 }
