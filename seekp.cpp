@@ -29,7 +29,7 @@ int main () {
 	if(rid != id[j]  || value.compare(bb[j]) != 0){
 		long pos = outfile.tellg(); // get curret file pointer position
 		long stringl = line.length(); // get string length
-		outfile.seekp(pos - stringl);// walk backward to the start of the line
+		outfile.seekp(pos - stringl - 1);// walk backward to the start of the line
 		outfile << setfill('0') << setw(5) << id[j] << " " << bb[j] <<"\n";
 	}
 	++j;
