@@ -276,10 +276,6 @@ void writemap(map <long,string> &targetmap){
 		outfile.close();//close it and reopen in different mode
 		outfile.open (targetfilename ,fstream::app);//open in append mode	
 		for(;it != targetmap.end();++it){//number of line in map  > number of line in file or continuously update file
-			if(it->first == 1866858933690884811){
-				cout << it->second << endl;
-				cout << targetfilename << endl;
-			}
 			outfile << setfill('0') << setw(19) << it->first << ":" << it->second <<"\n";
 		}
 
