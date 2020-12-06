@@ -38,19 +38,27 @@ int main(int argc, char *argv[]){
 	string line;
 	int line_num = 1;
 	stringstream ss;
-	string comNarg[3];
 	string temp;
+	deque <string> outputpath;
+	string comNarg[3];
 	int i = 0;
 
 	line = argv[1];
 	ss << line;
-	while(getline(ss,temp,'.')){//separate one line command 
-		comNarg[i] = temp;
-		++i;
+	while(getline(ss,temp,'/')){//separate long path ex /hw/dd/1.input 
+		outputpath.push_back(temp);
 	}
 	ss.str(std::string());//clear stringstream
 	ss.clear();
-	outputfile.open(comNarg[0] + ".output");//open outputfile with same input command file name
+	ss << outputpath.back();
+	outputpath.clear();//clear path queue
+	while(getline(ss,temp,'.')){//separate xxx.input
+		outputpath.push_back(temp);
+	}
+	ss.str(std::string());//clear stringstream
+	ss.clear();
+
+	outputfile.open(outputpath.front() + ".output");//open outputfile with same input command file name
 
 	while(getline(commandfile , line)){ //read command file until reach eof
 		ss << line;
@@ -269,8 +277,8 @@ void writemap(map <long,string> &targetmap){
 				long stringl = line.length(); // get string length
 				outfile.seekp(pos - stringl - 1);// walk backward to the start of the line
 				outfile << setfill('0') << setw(19) << it->first << ":" << it->second <<"\n";
-				++it;//next element
 			}
+			++it;// next element if no break happened
   		}
 
 		outfile.close();//close it and reopen in different mode
